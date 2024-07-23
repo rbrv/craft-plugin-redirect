@@ -1,5 +1,9 @@
 # Redirect Changelog
 
+## 3.0.0 - 2024-07-23
+### Added
+- Support for Craft 5
+
 ## 2.0.1 - 2023-01-25
 ### Fixed
 - Fix elements not having an edit link on list view
