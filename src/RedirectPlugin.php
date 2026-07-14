@@ -168,7 +168,10 @@ class RedirectPlugin extends Plugin
             return;
         }
 
-        $uriParts = pathinfo($uri);
+        // The template payload keeps the pre-5.2 shape: the raw request URI,
+        // and its parts sans query string.
+        $requestUri = $_SERVER['REQUEST_URI'] ?? '';
+        $uriParts = pathinfo(current(explode('?', $requestUri)));
 
         if (
             isset($uriParts['extension']) &&
@@ -190,7 +193,7 @@ class RedirectPlugin extends Plugin
         $response->setStatusCode(404);
         $response->data = Craft::$app->getView()->renderPageTemplate($settings->catchAllTemplate, [
             'request' => [
-                'requestUri' => Craft::$app->getRequest()->getFullUri(),
+                'requestUri' => $requestUri,
                 'uriParts' => $uriParts,
             ],
         ], View::TEMPLATE_MODE_SITE);
