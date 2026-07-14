@@ -1,11 +1,12 @@
 # Redirect Manager — Changelog
 
-All notable changes to `dolphiq/redirect`. Format based on
-[Keep a Changelog](https://keepachangelog.com/); this project follows Craft's major versions.
+All notable changes to `robarov/redirect`, the Robarov fork of the (abandoned)
+`dolphiq/redirect`. Format based on [Keep a Changelog](https://keepachangelog.com/);
+the plugin line follows Craft's major version.
 
 | Plugin line | Craft | PHP |
 |-------------|-------|-----|
-| `3.x`       | Craft 5 | 8.2+ |
+| `5.x`       | Craft 5 | 8.2+ |
 | `2.x`       | Craft 4 | 8.0.2+ |
 | `1.x`       | Craft 3 | 7.x – 8.0 |
 
@@ -13,7 +14,42 @@ See [README → Upgrading](README.md#upgrading) for migration steps between majo
 
 ---
 
-## 3.0.0 — unreleased (Craft 5)
+## 5.2.0 (Craft 5)
+
+First release of the fork under its own package name. Descends from
+`dolphiq/redirect` 5.1.1.
+
+### Changed
+- **Renamed to `robarov/redirect`.** The fork shared upstream's package name, so Composer and
+  Craft resolved it against the same Packagist entry and offered upstream's releases as updates.
+  The plugin handle (`redirect`) and the `dolphiq\redirect` namespace are unchanged: existing
+  redirects, settings and project config carry over untouched. Update the require line to
+  `"robarov/redirect": "^5.2"`.
+- **`schemaVersion` is now `5.2.0`** (was `1.0.5`). Upstream added migrations for the `matchType`,
+  `priority`, analytics and scheduling columns but left `schemaVersion` at `1.0.5`. Sites coming
+  from this fork's `3.0.0` had a *higher* schema version recorded, so Craft never ran those
+  migrations and 5.x code queried columns that did not exist (`Unknown column 'priority'`).
+
+### Fixed
+- **Redirects now work on URI-prefixed sites** ([#148]). Source URLs are stored site-relative, but
+  resolution was handed the full path, so a redirect saved on a site with a `/en` or `/fr` prefix
+  never matched. On such sites the plugin did nothing at all.
+- **Template pages no longer 404 on URI-prefixed sites** ([#148]). `/en/foo` now renders `foo`.
+- **Redirect resolution moved from a catch-all URL rule to Craft's 404 handler.** Craft evaluates
+  URL rules before `.well-known` and template routes, so the `<all:.+>` rule pre-empted routing
+  Craft should own. Resolution now runs only on a genuine 404, and Craft routes entries,
+  `.well-known` and templates natively.
+
+### Removed
+- `RedirectController`; nothing routed to it but the catch-all rule. `EVENT_BEFORE_CATCHALL` and
+  `FILE_EXTENSIONS` now live on `RedirectPlugin`. An unmatched 404 falls through to Craft's own 404
+  response unless `catchAllTemplate` is set.
+
+[#148]: https://github.com/Dolphiq/craft-plugin-redirect/issues/148
+
+---
+
+## 3.0.0 — fork-only release (Craft 5)
 
 **Compatibility:** requires Craft CMS `^5.0` and PHP `^8.2`. Existing redirects keep working and are
 migrated automatically (a `matchType` is inferred for each). See the upgrade notes for the one

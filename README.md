@@ -6,12 +6,42 @@
 </p>
 
 <p align="center">
-  <a href="https://packagist.org/packages/dolphiq/redirect"><img src="https://img.shields.io/packagist/v/dolphiq/redirect.svg?label=version" alt="Latest version"></a>
+  <img src="https://img.shields.io/badge/version-5.2.0-blue.svg" alt="Version 5.2.0">
   <img src="https://img.shields.io/badge/Craft%20CMS-5.x-E5422B.svg" alt="Craft CMS 5">
   <img src="https://img.shields.io/badge/PHP-8.2%2B-777BB4.svg" alt="PHP 8.2+">
-  <a href="LICENSE.md"><img src="https://img.shields.io/packagist/l/dolphiq/redirect.svg" alt="MIT license"></a>
-  <a href="https://packagist.org/packages/dolphiq/redirect"><img src="https://img.shields.io/packagist/dt/dolphiq/redirect.svg?label=installs" alt="Total installs"></a>
+  <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT license"></a>
 </p>
+
+> ### About this fork
+>
+> `robarov/redirect` is Robarov's fork of [`dolphiq/redirect`](https://github.com/Dolphiq/craft-plugin-redirect),
+> which is [marked abandoned on Packagist](https://packagist.org/packages/dolphiq/redirect).
+> It is maintained for our own sites; you are welcome to use it, but it comes with no support promise.
+>
+> It carries a fix for [issue #148](https://github.com/Dolphiq/craft-plugin-redirect/issues/148):
+> on a site with a URI prefix (`@web/en`), upstream 5.1.1 resolves redirects against the full path
+> while source URLs are stored site-relative — so **redirects never fire on prefixed sites**, and
+> template pages there 404. See the [changelog](CHANGELOG.md#520-craft-5) for the details.
+>
+> It is **not on Packagist**. Install it from this repository:
+>
+> ```jsonc
+> // composer.json
+> "repositories": [
+>     {
+>         "type": "vcs",
+>         "url": "git@github.com:rbrv/craft-plugin-redirect.git",
+>         "only": ["robarov/redirect"]
+>     }
+> ],
+> "require": {
+>     "robarov/redirect": "^5.2"
+> }
+> ```
+>
+> The plugin handle (`redirect`) and the `dolphiq\redirect` namespace are unchanged from upstream,
+> so redirects, settings and project config carry over. Original work and copyright remain
+> Dolphiq's under the [MIT license](LICENSE.md).
 
 <p align="center">
   <img src="resources/screenshots/redirects-overview.png" alt="Redirect overview in the Craft control panel" width="100%">
