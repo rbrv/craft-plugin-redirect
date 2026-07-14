@@ -68,7 +68,7 @@
   "extra": {
     "name": "Redirect Manager",
     "handle": "redirect",
-    "schemaVersion": "5.2.0",
+    "schemaVersion": "1.0.9",
     "developer": "Robarov",
     "developerUrl": "https://robarov.be/",
     "description": "Craft redirect plugin provides an easy way to enter and maintain 301 and 302 redirects and 404 error pages.",

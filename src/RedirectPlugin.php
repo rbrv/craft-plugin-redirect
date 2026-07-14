@@ -218,7 +218,9 @@ class RedirectPlugin extends Plugin
 
     // Table schema version. Craft overrides this with extra.schemaVersion from
     // composer.json, so keep the two in step: bumping this alone does nothing.
-    public string $schemaVersion = '5.2.0';
+    // Deliberately tracks upstream's numbering rather than the plugin version,
+    // so a site can move between this fork and dolphiq/redirect either way.
+    public string $schemaVersion = '1.0.9';
 
     /*
     *

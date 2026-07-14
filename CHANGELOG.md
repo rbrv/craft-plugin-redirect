@@ -25,10 +25,19 @@ First release of the fork under its own package name. Descends from
   The plugin handle (`redirect`) and the `dolphiq\redirect` namespace are unchanged: existing
   redirects, settings and project config carry over untouched. Update the require line to
   `"robarov/redirect": "^5.2"`.
-- **`schemaVersion` is now `5.2.0`** (was `1.0.5`). Upstream added migrations for the `matchType`,
-  `priority`, analytics and scheduling columns but left `schemaVersion` at `1.0.5`. Sites coming
-  from this fork's `3.0.0` had a *higher* schema version recorded, so Craft never ran those
-  migrations and 5.x code queried columns that did not exist (`Unknown column 'priority'`).
+- **`schemaVersion` is now `1.0.9`** (was `1.0.5` in composer.json, while the plugin class declared
+  `1.0.9` — Craft takes composer.json's value, so the two disagreeing meant Craft never signalled
+  that the `matchType`, `priority`, analytics and scheduling migrations were needed. 5.x code then
+  queried columns that did not exist: `Unknown column 'priority'`). The two are now in step.
+
+  It tracks upstream's numbering rather than the plugin version, on purpose: a site can move
+  between this fork and `dolphiq/redirect` in either direction without its recorded schema version
+  stranding it above anything upstream will ever declare.
+
+  **Upgrading from this fork's `3.0.0`:** `3.0.0` is higher than `1.0.9`, so Craft will not prompt
+  for a database update. Run `craft up` (or `craft migrate/up --plugin=redirect`) — pending
+  migrations are applied on the strength of the migration files themselves, regardless of the
+  version comparison, and the recorded version is then normalised to `1.0.9`.
 
 ### Fixed
 - **Redirects now work on URI-prefixed sites** ([#148]). Source URLs are stored site-relative, but
