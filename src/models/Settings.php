@@ -21,6 +21,27 @@ class Settings extends Model
     public $catchAllTemplate = '';
 
     /**
+     * Whether to automatically create a 301 redirect when an element's URI changes.
+     *
+     * @var bool
+     */
+    public $autoCreateRedirectOnUriChange = true;
+
+    /**
+     * Whether to collect privacy-safe 404 analytics (aggregate counts; no IPs/UA stored).
+     *
+     * @var bool
+     */
+    public $analyticsEnabled = false;
+
+    /**
+     * How many days of daily 404 analytics to keep before pruning.
+     *
+     * @var int
+     */
+    public $analyticsRetentionDays = 90;
+
+    /**
      * @inheritdoc
      */
     public function init(): void

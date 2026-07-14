@@ -1,173 +1,135 @@
-# Redirect Changelog
+# Redirect Manager — Changelog
 
-## 2.0.1 - 2023-01-25
-### Fixed
-- Fix elements not having an edit link on list view
-### Changed
-- Set redirects template to extend new craft 4 "_layouts/elementindex" layout
-- Allow for query parameters to be passed through to successful redirects
-- Special thanks to JoshC96 
+All notable changes to `dolphiq/redirect`. Format based on
+[Keep a Changelog](https://keepachangelog.com/); this project follows Craft's major versions.
 
-## 2.0.0 - 2022-06-24
-### Changed
-- Make compatible with Craft 4.0
-- Make compatible php 8.0
+| Plugin line | Craft | PHP |
+|-------------|-------|-----|
+| `3.x`       | Craft 5 | 8.2+ |
+| `2.x`       | Craft 4 | 8.0.2+ |
+| `1.x`       | Craft 3 | 7.x – 8.0 |
 
-## 1.1.1 - 2020-08-06
+See [README → Upgrading](README.md#upgrading) for migration steps between major versions.
 
-### Fixed
-- Fixed plugin name in Composer to be in line with the plugin store
+---
 
-## 1.1.0 - 2020-08-03
-### Fixed
-- Fixed to work properly in Craft 3.4.0
+## 3.0.0 — unreleased (Craft 5)
 
-### Fixed
-- :void is not a return type in PHP < 7.1
-
-## 1.0.23 - 2019-04-30
-### Changed
-- Change the url size (source and destination url) from maximal 255 characters to maximal 1000 characters
-
-### Fixed
-- :void is not a return type in PHP < 7.1
-
-## 1.0.22 - 2019-04-26
-### Changed
-- Cleanup and improvements in the sourcecode
-
-### Fixed
-- Class 'verbb\feedme\services\Elements' not found when updating the plugin
-- Use new craft\feedme namespace
-
-## 1.0.21 - 2019-04-17
-### Added
-- Give other plugins a chance to trigger event: beforeCatchall
-- Improve and add missing German translations
-
-### Fixed
-- Source url to work with numbers only eg rederect /12 to /number=12
-- Source url to work with # numbers, note: the # part is ignored on server side
-- Small improvements in namespacig and remove undefined variable
-
-## 1.0.20 - 2019-02-05
-### Added
-- Add Feed Me support
-
-### Fixed
-- Verify static template before redirecting
-- Fix typo in translations
-
-## 1.0.19 - 2018-10-05
-### Added
-- Added german translation file
-
-## 1.0.18 - 2018-08-17
-### Fixed
-- Fixed navigation to work properly in Craft 3.0.20.
-
-
-## 1.0.17 - 2018-07-04
-### Fixed
-- Fixed icon not shown in newer Craft CMS 3 release
-- Fixed an index not found error if you enable Catch-all in the settings on some systems
-
-## 1.0.16 - 2018-04-18
-### Fixed
-- Fixed migration scripts to create all tables on first install
-- Small text changes
-
-## 1.0.15 - 2018-02-21
-### Fixed
-- Fixed a bug causing the settings routes and section not available in with Craft CMS 3.0.0-RC11
-
-## 1.0.14 - 2018-01-28
-### Added
-- Ignore not existing static files like fonts, images or video files from the catch all functionality
-
-### Fixed
-- Fixed the error "Cannot use craft\base\Object because 'Object' is a special class name" in some environments
-- Fixed a not working back link in the plugin
-
-## 1.0.13 - 2018-01-10
-### Added
-- Added settings screen to enable / disable all the redirects with one click
-- Added a catch all setting to catch all the other url's (404) and define a twig template to enable you to create a good stylish 404 page with the correct http code
-- Register the catched (not existing) url's in the database and show the last 100 in an interface. The plugin let you create new redirect rules directly from this overview by simply clicking on it.
-
-### Changed
-- The required minimal Craft version and checked the compatibility
-
-## 1.0.12 - 2018-01-03
+**Compatibility:** requires Craft CMS `^5.0` and PHP `^8.2`. Existing redirects keep working and are
+migrated automatically (a `matchType` is inferred for each). See the upgrade notes for the one
+behaviour change (redirects no longer shadow real pages).
 
 ### Added
-- Inactive redirects filter (show the redirects not visited for 60 days)
+- **Craft 5 support.**
+- **Event-based redirect resolution.** Redirects are resolved on demand only when a URL would
+  otherwise 404, instead of registering a URL rule per redirect on every request. Resolved matches
+  are cached and invalidated automatically when a redirect changes. This is faster and means a
+  redirect no longer shadows a real page that exists at the same path.
+- **Match types** — `exact`, `prefix`, `wildcard`, `pattern` (`<name>` / `<name:regex>`) and `regex`,
+  chosen from a picker on the edit form (and inferred for existing redirects). Adds a new `prefix`
+  type, a `*` **wildcard** that is copied into the destination (e.g. `docs/*` → `help/*`), and a raw
+  **`regex`** type with `$1`/`$2` backreferences (e.g. `^blog/(\d+)$` → `news/$1`).
+- **Enable / disable per redirect** — disabled redirects are kept but don't resolve. The element
+  index gains a status dot, a status filter, and a bulk **Set status** action (enable / disable /
+  delete a selection).
+- **Scheduled redirects** — optional **Start date** / **End date**; a redirect only resolves within
+  its window.
+- **Priority** — when more than one redirect could match a URL, the lower priority number wins.
+- **Automatic redirects on URI change** — when an element's URI changes, a 301 from the old URI to
+  the new one is created automatically (reverse redirects are removed to prevent loops). Toggle with
+  the `autoCreateRedirectOnUriChange` setting.
+- **CSV import / export** on a dedicated **Import / Export** page (`sourceUrl, destinationUrl,
+  statusCode`; header and blank/incomplete rows skipped; status code validated; 5 MB upload guard).
+- **Privacy-first 404 analytics** (opt-in, off by default): aggregate daily counts, top referrers and
+  browser families per missed URL — **no IP addresses or raw user agents are stored**. Configurable
+  retention (default 90 days), pruned during garbage collection.
+- **"Latest 404s" dashboard widget** showing recently missed URLs and their hit counts.
+- **GraphQL** — a `redirects(siteId)` query exposing `sourceUrl`, `destinationUrl`, `statusCode` and
+  `hitCount`.
+- **Edit-form helpers** — a **"Test this redirect"** box (checks a URL live, without saving), a
+  collapsible **pattern helper** with click-to-insert tokens, match-type-aware hints, and a **regex
+  helper** (token insertion, live validation with a capture-group count, and `$1`/`$2` chips).
+- **16 interface languages** alongside English: Dutch, German, French, Spanish, Italian, Danish,
+  Norwegian Bokmål, Swedish, Portuguese (Portugal & Brazil), Polish, Czech, Finnish, Japanese,
+  Simplified Chinese and Russian. A `TranslationsTest` guards every locale against the canonical
+  string set. (Machine-assisted translations — native review via PR is welcome.)
+- **Tooling** — a Codeception unit suite running against a real Craft test app, PHPStan (level 4)
+  and ECS.
+- **Documentation** — rewrote `RULES.md` (every match type) and `README`, and added a
+  `DEVELOPERS.md` reference (settings, service API, events, caching, GraphQL, localization).
 
 ### Changed
-- The required minimal Craft version and checked the compatibility
-- New screenshot
-- Added a link to the URL rules in the edit screen
+- **Control-panel redesign to Craft 5 conventions** — two-pane edit form (URLs in the main pane,
+  read-only meta in the details sidebar), **Delete** moved into the header action menu, rarely-used
+  options collapsed into an **Advanced** section, settings grouped into sections, and a polished
+  "Latest 404s" widget, Import/Export and 404-statistics screens.
+- Matching supports `<name:regex>` constraints and `*` wildcards and still fills `<name>` destination
+  placeholders from the query string — preserved through the move to event-based resolution.
+- Renamed the element-index method `tableAttributeHtml()` to `attributeHtml()` (Craft 5).
+- Redirect Manager is actively maintained again — removed the "discontinued" / "may become a paid
+  add-on" notices.
 
-## 1.0.11 - 2017-12-12
+### Fixed
+- No more stray `?` on redirect destinations: the request query string is only appended when there
+  actually is one, and joins with `&` when the destination already carries a query string (#138).
+- Feed Me mapping screen no longer errors on Craft 4/5: replaced the removed `{% for … if %}` loop
+  syntax with `|filter` (#143).
+- Deleting a catch-all 404 entry is now scoped to the site (and requires edit access), so a user can
+  no longer delete another site's 404 log by ID.
+- Element-index hit count and last-hit refresh immediately after a redirect fires, instead of showing
+  stale values until a cache clear.
+- `actionDeleteRedirect` referenced a missing service method (`deleteRedirectById`); deleting a
+  redirect no longer errors.
+- CSV import validates status codes (`301/302/307/308`, default `301`) and rejects uploads over 5 MB.
+- The settings controller imported a missing `ForbiddenHttpException` (permission guards previously
+  referenced an unresolved class).
+- The catch-all URLs table is created with the correct name when a database table prefix is
+  configured (a stray `%` previously double-applied the prefix).
+- `Redirect::__toString()` always returns a string.
+- Updated control-panel help/documentation links to the current repository.
 
+### Security
+- HTML-encode the source and destination URLs shown in the element index, so a value containing
+  markup (e.g. `<catname>`) can no longer inject HTML into the control panel.
+
+---
+
+## 2.0.1 — 2023-01-25 (Craft 4)
 ### Changed
-- Changed hardcoded tablenames to accept table prefix settings
-- New icon
-
-## 1.0.10 - 2017-12-11
-
+- Redirect index template extends Craft 4's `_layouts/elementindex` layout.
+- Query-string parameters are passed through to the destination on a successful redirect.
 ### Fixed
-- The Add new button dissapeared in Craft RC1 due to changes in the craft template. We fixed this! NOTE: RC1 is required now.
+- Elements not having an edit link in list view.
+- _Thanks to JoshC96._
 
-# Redirect Changelog
-## 1.0.9 - 2017-12-07
-
-### Fixed
-- Fixed a bug resulted in a query exception when using the plugin with Postgres and visiting a redirect url.
-
-## 1.0.8 - 2017-11-06
-
-### Fixed
-- validateCustomFields was removed from the last Craft version. We changed the settings controller for that.
-
-## 1.0.7 - 2017-10-22
-
-### Fixed
-- The branch was not merged correctly last build, we fixed it.
-
-## 1.0.6 - 2017-10-19
-
-### Fixed
-- The introduced fix in version 1.0.5 created an error in some other database environments.
-
-## 1.0.5 - 2017-10-11
-
-### Fixed
-- Fixed a bug resulted in a query exception when using the plugin with Postgres.
-
-## 1.0.4 - 2017-10-04
-
-### Fixed
-- Fixed a bug that resets the hitAt and hitCount in the migration process.
-- Fixed the form validation process and error message.
-
+## 2.0.0 — 2022-06-24 (Craft 4)
 ### Changed
-- Added a simple url beautifier/formatter when saving the redirect.
-- Cleanup some code.
+- Compatible with Craft 4.0 and PHP 8.0/8.1.
 
-### Added
-- Added a main selection to filter on All redirects, Permanent redirects or Temporarily redirects.
+---
 
-## 1.0.3 - 2017-10-03
-- Multi site support.
-- Searchable and sortable list.
-- Small fixes.
+## 1.x (Craft 3)
 
-## 1.0.2 - 2017-07-07
-- Fix for non default value in hitCount column needed for some database engines.
+Condensed from the release history (2017–2020); see git tags `v1.0.0`–`v1.1.1` for detail.
 
-## 1.0.1 - 2017-06-02
-- Added hit count and last hit date functionality.
+### 1.1.0 / 1.1.1 — 2020-08
+- Feed Me support for importing redirects.
+- German and Norwegian Bokmål translations; translation fixes.
+- Event so other plugins can hook into redirect handling; general cleanup.
 
-## 1.0.0 - 2017-06-01
-- Initial release.
+### 1.0.20 – 1.0.24 — 2019
+- Fixed an integrity-constraint violation on save (`uid` null) under Craft 3.3+.
+- Escaped the `hitAt` column name; raised the source/destination URL limit to 1000 characters.
+- On save, removed the redirect for sites where it shouldn't exist (multi-site correctness).
+- Verified the catch-all static template exists before redirecting to it.
+
+### 1.0.x — 2017–2018
+- Catch-all 404 handling with a configurable template and missed-URL logging.
+- Multi-site redirect URLs.
+- Named-parameter matching (`<name>`) with substitution into the destination.
+- Encoded source URLs so `#` and purely numeric sources match correctly.
+- Changed namespaces from `verbb` to `craft`; fixed a PHP < 7.1 error.
+
+## 1.0.0 — 2017-06-01 (Craft 3)
+- Initial release: a Redirect element type with exact and `<name>`-parameter matching, catch-all 404
+  logging, and multi-site support.

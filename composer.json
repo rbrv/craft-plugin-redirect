@@ -1,51 +1,81 @@
 {
-  "name": "dolphiq/redirect",
-  "description": "Craft redirect plugin provides an easy way to enter and maintain 301 and 302 redirects and 404 error pages.",
+  "name": "robarov/redirect",
+  "description": "Craft redirect plugin provides an easy way to enter and maintain 301 and 302 redirects and 404 error pages. Robarov fork of dolphiq/redirect.",
   "type": "craft-plugin",
-  "version": "2.0.1",
   "keywords": [
     "craft",
     "cms",
     "craftcms",
     "craft-plugin",
     "redirect",
-    "seo",
-    "craft3"
+    "seo"
   ],
-  "platform": {
-    "php": "8.0|8.1"
-  },
   "license": "MIT",
   "support": {
-    "docs": "https://github.com/Dolphiq/craft3-plugin-redirect/blob/master/README.md",
-    "issues": "https://github.com/Dolphiq/craft3-plugin-redirect/issues"
+    "docs": "https://github.com/rbrv/craft-plugin-redirect/blob/master/README.md",
+    "issues": "https://github.com/rbrv/craft-plugin-redirect/issues"
   },
   "authors": [
     {
       "name": "Dolphiq",
       "email": "info@dolphiq.nl",
       "homepage": "https://dolphiq.nl/"
+    },
+    {
+      "name": "Robarov",
+      "homepage": "https://robarov.be/"
     }
   ],
+  "minimum-stability": "dev",
+  "prefer-stable": true,
   "require": {
-    "craftcms/cms": "^4.0.0 || ^5.0.0"
+    "php": "^8.2",
+    "craftcms/cms": "^5.0.0"
+  },
+  "require-dev": {
+    "codeception/codeception": "^5.0",
+    "codeception/module-asserts": "^3.0",
+    "codeception/module-yii2": "^1.1",
+    "craftcms/ecs": "dev-main",
+    "craftcms/phpstan": "dev-main",
+    "craftcms/rector": "dev-main"
   },
   "autoload": {
     "psr-4": {
       "dolphiq\\redirect\\": "src/"
     }
   },
+  "autoload-dev": {
+    "psr-4": {
+      "dolphiq\\redirect\\tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "check-cs": "ecs check --ansi",
+    "fix-cs": "ecs check --ansi --fix",
+    "phpstan": "phpstan --memory-limit=1G"
+  },
+  "config": {
+    "sort-packages": true,
+    "platform": {
+      "php": "8.2"
+    },
+    "allow-plugins": {
+      "yiisoft/yii2-composer": true,
+      "craftcms/plugin-installer": true
+    }
+  },
   "extra": {
     "name": "Redirect Manager",
     "handle": "redirect",
-    "schemaVersion": "1.0.5",
-    "developer": "Dolphiq",
-    "developerUrl": "https://dolphiq.nl/",
+    "schemaVersion": "5.2.0",
+    "developer": "Robarov",
+    "developerUrl": "https://robarov.be/",
     "description": "Craft redirect plugin provides an easy way to enter and maintain 301 and 302 redirects and 404 error pages.",
     "hasCpSettings": true,
     "hasCpSection": true,
-    "documentationUrl": "https://github.com/Dolphiq/craft3-plugin-redirect/blob/master/README.md",
-    "changelogUrl": "https://raw.githubusercontent.com/Dolphiq/craft3-plugin-redirect/master/CHANGELOG.md",
+    "documentationUrl": "https://github.com/rbrv/craft-plugin-redirect/blob/master/README.md",
+    "changelogUrl": "https://raw.githubusercontent.com/rbrv/craft-plugin-redirect/master/CHANGELOG.md",
     "class": "dolphiq\\redirect\\RedirectPlugin"
   }
 }

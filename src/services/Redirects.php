@@ -10,8 +10,10 @@ namespace dolphiq\redirect\services;
 
 use Craft;
 use craft\helpers\Db;
+use craft\helpers\DateTimeHelper;
 use dolphiq\redirect\elements\Redirect;
 use yii\base\Component;
+use yii\caching\TagDependency;
 use yii\db\Expression;
 
 /**
@@ -20,9 +22,28 @@ use yii\db\Expression;
  */
 class Redirects extends Component
 {
+    /**
+     * Cache tag for resolved redirect lookups; invalidated when a redirect changes.
+     */
+    public const CACHE_TAG = 'dolphiq-redirect';
+
+    /**
+     * TTL (seconds) for resolved lookups. Finite so a scheduled redirect's window
+     * opening/closing purely by the clock (with no save to invalidate the tag) is
+     * honored within this window. Saves still invalidate immediately via the tag.
+     */
+    public const CACHE_DURATION = 300;
 
     // Public Methods
     // =========================================================================
+
+    /**
+     * Invalidates all cached redirect resolutions.
+     */
+    public function invalidateCache(): void
+    {
+        TagDependency::invalidate(Craft::$app->getCache(), self::CACHE_TAG);
+    }
 
     /**
      * Returns the redirects defined in `config/redirects.php`
@@ -67,10 +88,409 @@ class Redirects extends Component
      */
     public function getAllRedirectsForSite($siteId = null): array
     {
-        $results = Redirect::find()->andWhere(Db::parseParam('elements_sites.siteId', $siteId))->all();
+        $results = Redirect::find()
+            ->andWhere(Db::parseParam('elements_sites.siteId', $siteId))
+            ->orderBy(['dolphiq_redirects.priority' => SORT_ASC, 'elements.id' => SORT_ASC])
+            ->all();
         return $results;
     }
 
+    /**
+     * Returns a site's redirects as plain scalar rows, for GraphQL or export.
+     *
+     * @return array<int, array{id: int, sourceUrl: string, destinationUrl: string, statusCode: string, hitCount: int}>
+     */
+    public function getRedirectDataForSite(int $siteId): array
+    {
+        $rows = [];
+        foreach ($this->getAllRedirectsForSite($siteId) as $redirect) {
+            $rows[] = [
+                'id' => (int)$redirect->id,
+                'sourceUrl' => (string)$redirect->sourceUrl,
+                'destinationUrl' => (string)$redirect->destinationUrl,
+                'statusCode' => (string)$redirect->statusCode,
+                'hitCount' => (int)$redirect->hitCount,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Resolves a requested URI to a matching redirect for the given site.
+     *
+     * Matches an exact source URL or a named-parameter pattern (e.g.
+     * `category/<catname>/overview.php`), substituting captured parameters into
+     * the destination URL. Returns the destination/status/id, or null on no match.
+     *
+     * @return array{destinationUrl: string, statusCode: string, redirectId: int}|null
+     */
+    public function resolveForUri(string $uri, int $siteId): ?array
+    {
+        $uri = trim($uri, '/');
+        $cache = Craft::$app->getCache();
+        $cacheKey = "dolphiq-redirect:resolve:{$siteId}:{$uri}";
+
+        $cached = $cache->get($cacheKey);
+        if (is_array($cached)) {
+            return $cached['match'];
+        }
+
+        $match = $this->matchUri($uri, $siteId);
+        $cache->set($cacheKey, ['match' => $match], self::CACHE_DURATION, new TagDependency(['tags' => [self::CACHE_TAG]]));
+
+        return $match;
+    }
+
+    /**
+     * Substitutes `<name>` placeholders left in a destination URL with values from
+     * the request query string. Unknown placeholders are left untouched.
+     *
+     * This runs per-request (not cached) so query values never pollute the cache.
+     *
+     * @param array<string, mixed> $queryParams
+     */
+    public function substituteQueryParams(string $destination, array $queryParams): string
+    {
+        if (!str_contains($destination, '<')) {
+            return $destination;
+        }
+
+        return preg_replace_callback('/<([\w._-]+)>/', static function(array $m) use ($queryParams) {
+            return isset($queryParams[$m[1]]) ? (string)$queryParams[$m[1]] : $m[0];
+        }, $destination);
+    }
+
+    /**
+     * Appends the incoming request's query string to a redirect destination.
+     * No-ops when there is no query string (so destinations never gain a bare `?`),
+     * and joins with `&` when the destination already carries a query string.
+     */
+    public function appendQueryString(string $destinationUrl, string $queryString): string
+    {
+        if ($queryString === '') {
+            return $destinationUrl;
+        }
+
+        $separator = str_contains($destinationUrl, '?') ? '&' : '?';
+        return $destinationUrl . $separator . $queryString;
+    }
+
+    /**
+     * Whether a redirect's optional schedule window is currently open.
+     * Either bound may be null (open-ended). Accepts anything DateTimeHelper can parse.
+     *
+     * @param mixed $postDate
+     * @param mixed $expiryDate
+     */
+    public function isScheduleActive($postDate, $expiryDate, ?\DateTimeInterface $now = null): bool
+    {
+        $now = $now ?: DateTimeHelper::currentUTCDateTime();
+
+        if ($postDate !== null && $postDate !== '') {
+            $start = DateTimeHelper::toDateTime($postDate, false, false);
+            if ($start && $now < $start) {
+                return false;
+            }
+        }
+
+        if ($expiryDate !== null && $expiryDate !== '') {
+            $end = DateTimeHelper::toDateTime($expiryDate, false, false);
+            if ($end && $now >= $end) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Matches a (already normalised) URI against the site's redirects.
+     *
+     * @return array{destinationUrl: string, statusCode: string, redirectId: int}|null
+     */
+    private function matchUri(string $uri, int $siteId): ?array
+    {
+        foreach ($this->getAllRedirectsForSite($siteId) as $redirect) {
+            if (!$this->isScheduleActive($redirect->postDate ?? null, $redirect->expiryDate ?? null)) {
+                continue;
+            }
+
+            $source = trim((string)$redirect->sourceUrl, '/');
+            $matchType = $redirect->matchType ?: Redirect::inferMatchType($source);
+
+            $captures = $this->matchOne($matchType, $source, $uri);
+            if ($captures === null) {
+                continue;
+            }
+
+            return [
+                'destinationUrl' => $this->applyCaptures((string)$redirect->destinationUrl, $captures),
+                'statusCode' => (string)$redirect->statusCode,
+                'redirectId' => (int)$redirect->id,
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * Tests a single redirect definition against a URL without touching the database.
+     * Never throws — an invalid pattern is reported via `error`.
+     *
+     * @return array{matched: bool, destination: string|null, error: string|null}
+     */
+    public function testMatch(string $matchType, string $sourceUrl, string $destinationUrl, string $testUrl): array
+    {
+        try {
+            $captures = $this->matchOne($matchType, trim($sourceUrl, '/'), trim($testUrl, '/'));
+            if ($captures === null) {
+                return ['matched' => false, 'destination' => null, 'error' => null];
+            }
+
+            return [
+                'matched' => true,
+                'destination' => $this->applyCaptures($destinationUrl, $captures),
+                'error' => null,
+            ];
+        } catch (\Throwable $e) {
+            return ['matched' => false, 'destination' => null, 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Matches a normalised URI against one source pattern by type.
+     *
+     * @return array{named: array<string,string>, wildcards: array<int,string>, numeric: array<int,string>}|null
+     */
+    private function matchOne(string $matchType, string $source, string $uri): ?array
+    {
+        switch ($matchType) {
+            case 'exact':
+                return $source === $uri ? ['named' => [], 'wildcards' => [], 'numeric' => []] : null;
+
+            case 'prefix':
+                return ($uri === $source || str_starts_with($uri, $source . '/'))
+                    ? ['named' => [], 'wildcards' => [], 'numeric' => []]
+                    : null;
+
+            case 'regex':
+                // Source is a raw PCRE pattern; `#` is escaped so it can't break the delimiter.
+                $regex = '#' . str_replace('#', '\#', $source) . '#';
+                if (!preg_match($regex, $uri, $matches)) {
+                    return null;
+                }
+                $numeric = [];
+                foreach ($matches as $key => $value) {
+                    if (is_int($key) && $key > 0) {
+                        $numeric[$key] = $value;
+                    }
+                }
+                return ['named' => [], 'wildcards' => [], 'numeric' => $numeric];
+
+            case 'wildcard':
+            case 'pattern':
+                if (!preg_match($this->sourceUrlToRegex($source), $uri, $matches)) {
+                    return null;
+                }
+                $named = [];
+                $wildcards = [];
+                foreach ($matches as $key => $value) {
+                    if (!is_string($key)) {
+                        continue;
+                    }
+                    if (str_starts_with($key, 'wild')) {
+                        $wildcards[] = $value;
+                    } else {
+                        $named[$key] = $value;
+                    }
+                }
+                return ['named' => $named, 'wildcards' => $wildcards, 'numeric' => []];
+
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * Substitutes captured named params, wildcards and numeric backreferences into a destination URL.
+     *
+     * @param array{named: array<string,string>, wildcards: array<int,string>, numeric: array<int,string>} $captures
+     */
+    private function applyCaptures(string $destinationUrl, array $captures): string
+    {
+        foreach ($captures['named'] as $name => $value) {
+            $destinationUrl = str_replace("<$name>", $value, $destinationUrl);
+        }
+
+        if ($captures['numeric'] !== []) {
+            $destinationUrl = preg_replace_callback('/\$(\d+)/', static function(array $m) use ($captures) {
+                return $captures['numeric'][(int)$m[1]] ?? $m[0];
+            }, $destinationUrl);
+        }
+
+        if ($captures['wildcards'] !== []) {
+            $i = 0;
+            $destinationUrl = preg_replace_callback('/\*/', static function() use (&$i, $captures) {
+                return $captures['wildcards'][$i++] ?? '';
+            }, $destinationUrl);
+        }
+
+        return $destinationUrl;
+    }
+
+    /**
+     * Turns a source URL pattern into an anchored regex:
+     * - `<name>` → named group matching a single path segment
+     * - `<name:regex>` → named group matching the given regex (e.g. `<id:\d+>`, `<rest:.+>`)
+     * - `*` → wildcard group (`wild0`, `wild1`, …) matching across segments
+     */
+    private function sourceUrlToRegex(string $source): string
+    {
+        $source = trim($source, '/');
+        $parts = preg_split('/(<[\w._-]+(?::[^>]+)?>|\*)/', $source, -1, PREG_SPLIT_DELIM_CAPTURE);
+
+        $regex = '';
+        $wildcardIndex = 0;
+        foreach ($parts as $part) {
+            if ($part === '') {
+                continue;
+            }
+            if (preg_match('/^<([\w._-]+)(?::([^>]+))?>$/', $part, $m)) {
+                $pattern = ($m[2] ?? '') !== '' ? $m[2] : '[^/]+';
+                $regex .= '(?P<' . $m[1] . '>' . $pattern . ')';
+            } elseif ($part === '*') {
+                $regex .= '(?P<wild' . $wildcardIndex . '>.*)';
+                $wildcardIndex++;
+            } else {
+                $regex .= preg_quote($part, '#');
+            }
+        }
+
+        return '#^' . $regex . '$#';
+    }
+
+
+    /**
+     * Creates a 301 redirect from an old URI to a new one after an element's URI
+     * changes. No-ops when the URI is unchanged/empty or a redirect from the old URI
+     * already exists. Any reverse redirect (new -> old) is removed to avoid a loop.
+     *
+     * @return Redirect|null the created redirect, or null when nothing was created
+     */
+    public function createUriChangeRedirect(string $oldUri, string $newUri, int $siteId): ?Redirect
+    {
+        $oldUri = trim($oldUri, '/');
+        $newUri = trim($newUri, '/');
+
+        if ($oldUri === '' || $newUri === '' || $oldUri === $newUri) {
+            return null;
+        }
+
+        // Already have a redirect from the old URI on this site? Leave it alone.
+        $existing = Redirect::find()
+            ->andWhere(['dolphiq_redirects.sourceUrl' => $oldUri])
+            ->andWhere(Db::parseParam('elements_sites.siteId', $siteId))
+            ->one();
+        if ($existing !== null) {
+            return null;
+        }
+
+        // Remove any reverse redirect (new -> old) so renaming back and forth can't loop.
+        $reverse = Redirect::find()
+            ->andWhere([
+                'dolphiq_redirects.sourceUrl' => $newUri,
+                'dolphiq_redirects.destinationUrl' => $oldUri,
+            ])
+            ->andWhere(Db::parseParam('elements_sites.siteId', $siteId))
+            ->one();
+        if ($reverse !== null) {
+            Craft::$app->getElements()->deleteElement($reverse, true);
+        }
+
+        $redirect = new Redirect();
+        $redirect->siteId = $siteId;
+        $redirect->sourceUrl = $oldUri;
+        $redirect->destinationUrl = $newUri;
+        $redirect->statusCode = '301';
+
+        if (!Craft::$app->getElements()->saveElement($redirect)) {
+            return null;
+        }
+
+        return $redirect;
+    }
+
+    /**
+     * Exports all redirects for a site as CSV (sourceUrl, destinationUrl, statusCode).
+     */
+    public function exportCsv(int $siteId): string
+    {
+        $handle = fopen('php://temp', 'r+');
+        fputcsv($handle, ['sourceUrl', 'destinationUrl', 'statusCode']);
+
+        foreach ($this->getAllRedirectsForSite($siteId) as $redirect) {
+            fputcsv($handle, [$redirect->sourceUrl, $redirect->destinationUrl, $redirect->statusCode]);
+        }
+
+        rewind($handle);
+        $csv = stream_get_contents($handle);
+        fclose($handle);
+
+        return $csv;
+    }
+
+    /**
+     * Imports redirects from CSV. Columns: sourceUrl, destinationUrl, [statusCode].
+     * A header row is detected and skipped; blank/incomplete rows are skipped.
+     *
+     * @return array{created: int, skipped: int}
+     */
+    public function importCsv(string $csv, int $siteId): array
+    {
+        $created = 0;
+        $skipped = 0;
+        $lines = preg_split('/\r\n|\r|\n/', trim($csv));
+
+        foreach ($lines as $index => $line) {
+            if (trim($line) === '') {
+                continue;
+            }
+
+            $columns = str_getcsv($line);
+
+            // skip a header row
+            if ($index === 0 && strtolower(trim($columns[0] ?? '')) === 'sourceurl') {
+                continue;
+            }
+
+            $source = trim($columns[0] ?? '');
+            $destination = trim($columns[1] ?? '');
+            $statusCode = trim($columns[2] ?? '') ?: '301';
+            if (!in_array($statusCode, ['301', '302', '307', '308'], true)) {
+                $statusCode = '301';
+            }
+
+            if ($source === '' || $destination === '') {
+                $skipped++;
+                continue;
+            }
+
+            $redirect = new Redirect();
+            $redirect->siteId = $siteId;
+            $redirect->sourceUrl = $source;
+            $redirect->destinationUrl = $destination;
+            $redirect->statusCode = $statusCode;
+
+            if (Craft::$app->getElements()->saveElement($redirect)) {
+                $created++;
+            } else {
+                $skipped++;
+            }
+        }
+
+        return ['created' => $created, 'skipped' => $skipped];
+    }
 
     /**
      * Returns a redirect by its ID.
@@ -84,6 +504,19 @@ class Redirects extends Component
     {
         /** @noinspection PhpIncompatibleReturnTypeInspection */
         return Craft::$app->getElements()->getElementById($redirectId, Redirect::class, $siteId);
+    }
+
+    /**
+     * Deletes a redirect by its ID. Returns false if no such redirect exists.
+     */
+    public function deleteRedirectById(int $redirectId): bool
+    {
+        $redirect = $this->getRedirectById($redirectId);
+        if ($redirect === null) {
+            return false;
+        }
+
+        return Craft::$app->getElements()->deleteElement($redirect, true);
     }
 
 
@@ -100,7 +533,7 @@ class Redirects extends Component
         if ($redirectId < 1) {
             return false;
         }
-        $res = \Yii::$app->db->createCommand()
+        \Yii::$app->db->createCommand()
             ->update(
                 '{{%dolphiq_redirects}}',
                 [
@@ -110,6 +543,10 @@ class Redirects extends Component
                 ['id' => $redirectId]
             )
             ->execute();
+
+        // The raw UPDATE bypasses element caches; refresh them so the control-panel
+        // index shows the new hit count/last-hit without a manual cache clear.
+        Craft::$app->getElements()->invalidateCachesForElementType(Redirect::class);
 
         return true;
     }
