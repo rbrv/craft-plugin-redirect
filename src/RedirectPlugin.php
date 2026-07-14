@@ -216,8 +216,9 @@ class RedirectPlugin extends Plugin
     public bool $hasCpSection = true;
     public bool $hasCpSettings = true;
 
-    // table schema version
-    public string $schemaVersion = '1.0.9';
+    // Table schema version. Craft overrides this with extra.schemaVersion from
+    // composer.json, so keep the two in step: bumping this alone does nothing.
+    public string $schemaVersion = '5.2.0';
 
     /*
     *
