@@ -14,9 +14,15 @@ use Craft;
 use craft\base\Plugin;
 use craft\db\Query;
 use craft\events\ElementEvent;
+use craft\events\ExceptionEvent;
 use craft\events\RegisterComponentTypesEvent;
 use craft\events\RegisterGqlQueriesEvent;
 use craft\events\RegisterUrlRulesEvent;
+use craft\web\ErrorHandler;
+use craft\web\View;
+use dolphiq\redirect\events\RedirectEvent;
+use Throwable;
+use yii\web\NotFoundHttpException;
 use craft\services\Dashboard;
 use craft\services\Gc;
 use craft\services\Gql;
@@ -42,6 +48,31 @@ class RedirectPlugin extends Plugin
 {
     public static $plugin;
 
+    /**
+     * @event RedirectEvent Triggered before the catch-all logs an unmatched 404.
+     */
+    public const EVENT_BEFORE_CATCHALL = 'beforeCatchall';
+
+    /**
+     * Extensions left to Craft's normal 404 handling, and never logged by the
+     * catch-all — a missing asset is not a candidate for a redirect.
+     */
+    public const FILE_EXTENSIONS = [
+        'gif',
+        'jpg',
+        'jpeg',
+        'png',
+        'tiff',
+        'svg',
+        'ttf',
+        'woff',
+        'woff2',
+        'otf',
+        'ico',
+        'js',
+        'css',
+    ];
+
     private $_redirectsService;
     private $_catchAallService;
 
@@ -66,6 +97,106 @@ class RedirectPlugin extends Plugin
         }
         /** @var WebApplication|ConsoleApplication $this */
         return $this->_catchAallService;
+    }
+
+    /**
+     * Redirects the current request if a redirect matches the URI that 404'd.
+     *
+     * Called from craft\web\ErrorHandler's beforeHandleException. Sends the
+     * response and ends the request on a match; otherwise it returns and lets
+     * Craft render its own 404.
+     */
+    public function handleNotFound(Throwable $exception): void
+    {
+        // Yii wraps the original exception when the error action itself fails.
+        while (!$exception instanceof NotFoundHttpException && $exception->getPrevious() !== null) {
+            $exception = $exception->getPrevious();
+        }
+
+        if (!$exception instanceof NotFoundHttpException) {
+            return;
+        }
+
+        $request = Craft::$app->getRequest();
+
+        if ($request->getIsConsoleRequest() || !$request->getIsSiteRequest()) {
+            return;
+        }
+
+        // Source URLs are stored per-site and site-relative, so match on the
+        // prefix-stripped path: getFullPath() would keep a site's URI prefix.
+        $uri = $request->getPathInfo();
+        $siteId = Craft::$app->getSites()->getCurrentSite()->id;
+        $match = $this->getRedirects()->resolveForUri($uri, $siteId);
+
+        if ($match === null) {
+            $this->_handleCatchAll($uri);
+            return;
+        }
+
+        $destinationUrl = $this->getRedirects()
+            ->substituteQueryParams($match['destinationUrl'], $request->getQueryParams());
+
+        // add the site domain if the destination is not an absolute URL
+        if (!str_contains($destinationUrl, '://')) {
+            $destinationUrl = UrlHelper::baseUrl() . ltrim($destinationUrl, '/');
+        }
+
+        $destinationUrl = $this->getRedirects()
+            ->appendQueryString($destinationUrl, $request->getQueryStringWithoutPath());
+
+        if (!empty($match['redirectId'])) {
+            $this->getRedirects()->registerHitById($match['redirectId'], $destinationUrl);
+        }
+
+        Craft::$app->getResponse()
+            ->redirect($destinationUrl, (int)$match['statusCode'])
+            ->send();
+
+        Craft::$app->end();
+    }
+
+    /**
+     * Logs an unmatched 404 and renders the catch-all template, if either is
+     * enabled. Returns if not, leaving Craft's own 404 response in place.
+     */
+    private function _handleCatchAll(string $uri): void
+    {
+        $settings = $this->getSettings();
+
+        if (!$settings->catchAllActive) {
+            return;
+        }
+
+        $uriParts = pathinfo($uri);
+
+        if (
+            isset($uriParts['extension']) &&
+            $uriParts['extension'] !== '' &&
+            in_array($uriParts['extension'], self::FILE_EXTENSIONS, true)
+        ) {
+            return;
+        }
+
+        $this->trigger(self::EVENT_BEFORE_CATCHALL, new RedirectEvent(['uri' => $uri]));
+
+        $this->getCatchAll()->registerHitByUri($uri);
+
+        if ($settings->catchAllTemplate === '') {
+            return;
+        }
+
+        $response = Craft::$app->getResponse();
+        $response->setStatusCode(404);
+        $response->data = Craft::$app->getView()->renderPageTemplate($settings->catchAllTemplate, [
+            'request' => [
+                'requestUri' => Craft::$app->getRequest()->getFullUri(),
+                'uriParts' => $uriParts,
+            ],
+        ], View::TEMPLATE_MODE_SITE);
+        $response->send();
+
+        Craft::$app->end();
     }
 
     private $_analyticsService;
@@ -231,12 +362,16 @@ class RedirectPlugin extends Plugin
 
         $settings = RedirectPlugin::$plugin->getSettings();
         if ($settings->redirectsActive) {
-            // Event-based resolution: instead of registering a URL rule per redirect on
-            // every request, register a single low-priority catch-all. Real pages and
-            // entries resolve first; only a URL that would otherwise 404 reaches our
-            // controller, which looks up (and caches) a matching redirect on demand.
-            Event::on(UrlManager::class, UrlManager::EVENT_REGISTER_SITE_URL_RULES, function(RegisterUrlRulesEvent $event) {
-                $event->rules['<all:.+>'] = 'redirect/redirect/index';
+            // Resolve redirects from Craft's 404 handler rather than from a catch-all
+            // URL rule. craft\web\UrlManager::_getRequestRoute() evaluates URL rules
+            // before .well-known routes and before template routes, so a catch-all rule
+            // pre-empts routing that Craft should own: templates stop resolving, their
+            // route params never bind (breaking set-password and email verification),
+            // and .well-known requests are swallowed. Hooking the 404 instead means
+            // Craft routes everything natively and only a request that would genuinely
+            // 404 reaches us.
+            Event::on(ErrorHandler::class, ErrorHandler::EVENT_BEFORE_HANDLE_EXCEPTION, function(ExceptionEvent $event) {
+                $this->handleNotFound($event->exception);
             });
         }
 
