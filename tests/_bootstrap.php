@@ -15,7 +15,12 @@ $env = [
     'CRAFT_DB_TABLE_PREFIX' => '',
     'SECURITY_KEY' => 'test-security-key',
 ];
+// Defaults target the Docker setup; an already-set variable wins, so the suite
+// can also run against a local database.
 foreach ($env as $name => $value) {
+    if (getenv($name) !== false) {
+        continue;
+    }
     putenv("$name=$value");
     $_ENV[$name] = $value;
     $_SERVER[$name] = $value;
