@@ -1,5 +1,5 @@
 {
-  "name": "dolphiq/redirect",
+  "name": "robarov/redirect",
   "description": "Craft redirect plugin provides an easy way to enter and maintain 301 and 302 redirects and 404 error pages.",
   "type": "craft-plugin",
   "keywords": [
@@ -20,6 +20,10 @@
       "name": "Dolphiq",
       "email": "info@dolphiq.nl",
       "homepage": "https://dolphiq.nl/"
+    },
+    {
+      "name": "Robarov",
+      "homepage": "https://robarov.be/"
     }
   ],
   "minimum-stability": "dev",
